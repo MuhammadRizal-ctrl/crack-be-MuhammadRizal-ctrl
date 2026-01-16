@@ -1,0 +1,346 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  student
+  instructor
+  admin
+}
+
+enum CourseDifficulty {
+  beginner
+  intermediate
+  advanced
+}
+
+enum CourseStatus {
+  draft
+  published
+  archived
+}
+
+enum EnrollmentStatus {
+  active
+  completed
+  dropped
+}
+
+enum ChallengeDifficulty {
+  easy
+  medium
+  hard
+}
+
+enum SubmissionStatus {
+  pending
+  passed
+  failed
+  error
+}
+
+enum TutorPersonality {
+  balanced
+  teacher
+  creative
+  socratic
+  genz
+  asian_buddy
+  strict
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  passwordHash  String    @map("password_hash")
+  fullName      String    @map("full_name")
+  role          UserRole
+  avatar        String?
+  bio           String?
+  timezone      String    @default("UTC")
+  language      String    @default("en")
+  isActive      Boolean   @default(true) @map("is_active")
+  emailVerified  Boolean   @default(false) @map("email_verified")
+  emailVerifiedAt DateTime? @map("email_verified_at")
+  lastLoginAt   DateTime? @map("last_login_at")
+  oauthProvider  String?   @map("oauth_provider") // 'google', 'github', 'apple', 'facebook'
+  oauthId        String?   @map("oauth_id") // OAuth provider user ID
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  coursesAsInstructor Course[]              @relation("CourseInstructor")
+  enrollments         Enrollment[]
+  challengesCreated   Challenge[]           @relation("ChallengeCreator")
+  roadmapsCreated     Roadmap[]             @relation("RoadmapCreator")
+  roadmapProgress     UserRoadmapProgress[]
+  submissions         Submission[]
+  tutorConversations  TutorConversation[]
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens PasswordResetToken[]
+  notifications Notification[]
+
+  @@index([email])
+  @@index([role])
+  @@index([oauthProvider, oauthId])
+  @@unique([oauthProvider, oauthId])
+  @@map("users")
+}
+
+model Course {
+  id            String           @id @default(uuid())
+  title         String
+  description   String
+  thumbnail     String?
+  instructorId  String           @map("instructor_id")
+  difficulty    CourseDifficulty
+  category      String?
+  duration      Int? // in hours
+  status        CourseStatus     @default(draft)
+  prerequisites Json             @default("[]")
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+
+  // Relations
+  instructor  User         @relation("CourseInstructor", fields: [instructorId], references: [id], onDelete: Cascade)
+  modules     Module[]
+  enrollments Enrollment[]
+
+  @@index([instructorId])
+  @@index([difficulty])
+  @@index([status])
+  @@map("courses")
+}
+
+model Module {
+  id          String   @id @default(uuid())
+  courseId    String   @map("course_id")
+  title       String
+  description String?
+  orderIndex  Int      @map("order_index")
+  duration    Int? // in minutes
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  course  Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessons Lesson[]
+
+  @@index([courseId])
+  @@map("modules")
+}
+
+model Lesson {
+  id         String   @id @default(uuid())
+  moduleId   String   @map("module_id")
+  title      String
+  content    String
+  videoUrl   String?  @map("video_url")
+  orderIndex Int      @map("order_index")
+  duration   Int? // in minutes
+  isFree     Boolean  @default(false) @map("is_free")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  module Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@index([moduleId])
+  @@map("lessons")
+}
+
+model Enrollment {
+  id          String           @id @default(uuid())
+  userId      String           @map("user_id")
+  courseId    String           @map("course_id")
+  status      EnrollmentStatus @default(active)
+  progress    Int              @default(0) // 0-100
+  enrolledAt  DateTime         @default(now()) @map("enrolled_at")
+  completedAt DateTime?        @map("completed_at")
+
+  // Relations
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId])
+  @@index([userId])
+  @@index([courseId])
+  @@map("enrollments")
+}
+
+model Challenge {
+  id          String              @id @default(uuid())
+  title       String
+  description String
+  difficulty  ChallengeDifficulty
+  language    String
+  starterCode String?             @map("starter_code")
+  solution    String
+  testCases   Json                @map("test_cases")
+  tags        Json                @default("[]")
+  points      Int                 @default(0)
+  timeLimit   Int                 @default(30) @map("time_limit") // in seconds
+  memoryLimit Int                 @default(128) @map("memory_limit") // in MB
+  createdBy   String              @map("created_by")
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @updatedAt @map("updated_at")
+
+  // Relations
+  creator     User         @relation("ChallengeCreator", fields: [createdBy], references: [id])
+  submissions Submission[]
+
+  @@index([difficulty])
+  @@index([language])
+  @@map("challenges")
+}
+
+model Submission {
+  id            String           @id @default(uuid())
+  challengeId   String           @map("challenge_id")
+  userId        String           @map("user_id")
+  code          String
+  language      String
+  status        SubmissionStatus
+  executionTime Int?             @map("execution_time") // in milliseconds
+  memoryUsed    Int?             @map("memory_used") // in MB
+  testResults   Json?            @map("test_results")
+  submittedAt   DateTime         @default(now()) @map("submitted_at")
+
+  // Relations
+  challenge Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([challengeId])
+  @@index([userId])
+  @@index([status])
+  @@map("submissions")
+}
+
+model Roadmap {
+  id                String   @id @default(uuid())
+  title             String
+  description       String
+  category          String?
+  difficulty        String?
+  estimatedDuration Int?     @map("estimated_duration") // in weeks
+  items             Json
+  createdBy         String   @map("created_by")
+  isPublished       Boolean  @default(false) @map("is_published")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  creator  User                  @relation("RoadmapCreator", fields: [createdBy], references: [id])
+  progress UserRoadmapProgress[]
+
+  @@index([category])
+  @@index([createdBy])
+  @@map("roadmaps")
+}
+
+model UserRoadmapProgress {
+  id             String    @id @default(uuid())
+  userId         String    @map("user_id")
+  roadmapId      String    @map("roadmap_id")
+  completedItems Json      @default("[]") @map("completed_items")
+  progress       Int       @default(0) // 0-100
+  startedAt      DateTime  @default(now()) @map("started_at")
+  completedAt    DateTime? @map("completed_at")
+
+  // Relations
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roadmap Roadmap @relation(fields: [roadmapId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roadmapId])
+  @@index([userId])
+  @@index([roadmapId])
+  @@map("user_roadmap_progress")
+}
+
+model TutorConversation {
+  id          String           @id @default(uuid())
+  userId      String           @map("user_id")
+  title       String?
+  personality TutorPersonality @default(balanced)
+  context     Json?
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  // Relations
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages TutorMessage[]
+
+  @@index([userId])
+  @@map("tutor_conversations")
+}
+
+model TutorMessage {
+  id             String   @id @default(uuid())
+  conversationId String   @map("conversation_id")
+  role           String // 'user' | 'assistant'
+  content        String
+  timestamp      DateTime @default(now())
+
+  // Relations
+  conversation TutorConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@map("tutor_messages")
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([expiresAt])
+  @@index([userId])
+  @@map("email_verification_tokens")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([expiresAt])
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  type      String
+  title     String
+  message   String   @db.Text
+  link      String?
+  read      Boolean  @default(false)
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([read])
+  @@index([createdAt])
+  @@index([type])
+  @@map("notifications")
+}
